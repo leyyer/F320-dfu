@@ -67,7 +67,9 @@ void usb_fifo_write(unsigned char ep, unsigned char *buf, int len)
 void usb_write_ep0(void *dp, int size)
 {
 	unsigned char *bufp = dp;
-	usb_fifo_write(FIFO_EP0, bufp, size);
+	int min = size > last_setup.wLength ? last_setup.wLength : size;
+
+	usb_fifo_write(FIFO_EP0, bufp, min);
 }
 
 void usb_init(void)
@@ -158,6 +160,9 @@ static void ep0_std_devreq(void)
 	case USB_SET_DESCRIPTOR:
 		break;
 	case USB_GET_CONFIGURATION:
+		printf("get_configuration\n");
+		usb_get_configuration();
+		usb_write_byte(E0CSR, E0CSR_INPRDY | E0CSR_DATAEND);
 		break;
 	case USB_SET_CONFIGURATION:
 		break;
@@ -187,6 +192,8 @@ static void ep0_setup(void)
 		else if (recip == 2)
 			ep0_std_epreq();
 	} else if (type == 1) { /* class */
+		usb_class_request(&last_setup);
+		usb_write_byte(E0CSR, E0CSR_INPRDY | E0CSR_DATAEND);
 	} else if (type == 2) { /* vendor */
 	}
 }
@@ -207,7 +214,6 @@ static void ep0_in(void)
 	if (csr & E0CSR_OPRDY) {
 		if (usb0_ep[0] == USB_EP_IDLE) {
 			cnt = usb_fifo_read(FIFO_EP0, (unsigned char *)&last_setup, 8);
-			printf("reading: %d bytes\n", cnt);
 			printf("setup: %x, %d, %d, %d, %d\n", last_setup.bmRequestType,
 					last_setup.bRequest, last_setup.wValue,
 					last_setup.wIndex, last_setup.wLength);
@@ -234,7 +240,6 @@ static void usb_handle_in1int()
 	}
 
 	if (creg & ISRIN_EP0) {
-		printf("ep0 in\r\n");
 		ep0_in();
 	}
 }
@@ -256,7 +261,6 @@ static void usb_handle_out1int(void)
 
 void usb_isr(void) __interrupt(8) __using(2)
 {
-	printf("usb_isr\r\n");
 	usb_handle_cmint();
 	usb_handle_in1int();
 	usb_handle_out1int();

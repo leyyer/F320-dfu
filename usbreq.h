@@ -91,8 +91,12 @@ struct UsbStringDescriptor {
 };
 
 void usb_write_ep0(void *dp, int size);
+
+/* device side api */
 void usb_device_descriptor(void);
 void usb_configuration_descriptor(int idx);
 void usb_string_descriptor(int idx);
+void usb_get_configuration();
+void usb_class_request(struct SetupPacket *sp);
 #endif
 

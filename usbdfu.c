@@ -336,7 +336,7 @@ static __bit do_flash_rx0()
 #endif
 	__do_flash_erase(start_addr + 1);
 
-	for (skip; skip < sz_rx && start_addr < end_addr; ++skip) {
+	for (skip; skip < sz_rx && start_addr <= end_addr; ++skip) {
 #ifdef DEBUG
 		printf("write: %x\n", start_addr);
 #endif

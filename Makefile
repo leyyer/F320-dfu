@@ -1,9 +1,9 @@
 RM = del
 CFLAGS = -pstack-mode=small
 OBJS = main.rel sysinit.rel usbdev.rel usbdfu.rel
-usbdev.hex : usbdev.ihx clean
+dfu.hex : dfu.ihx clean
 	packihx $< > $@
-usbdev.ihx: $(OBJS)
+dfu.ihx: $(OBJS)
 	sdcc $(OBJS) -o $@
 %.rel:%.c
 	sdcc -c $^  $(CFLAGS)

@@ -11,10 +11,7 @@
 #define APP_START 0x1400
 
 void system_init(void);
-void usb_init(void);
 void delay(void);
 void watchdog_reset(void);
-void usb_isr(void);
-void start_app(void);
 #endif
 

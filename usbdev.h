@@ -65,5 +65,8 @@
 #define USB_EP_STALL 3
 
 void usb_endpoint_state(int ep, int state);
+void usb_init(void);
+void usb_poll(void);
+void start_app(void);
 #endif
 

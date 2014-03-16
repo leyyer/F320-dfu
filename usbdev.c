@@ -213,7 +213,7 @@ static void ep0_in(void)
 	}
 }
 
-void usb_isr(void)
+void usb_poll(void)
 {
 	unsigned char creg = usb_read_byte(CMINT);
 
@@ -244,5 +244,12 @@ void usb_isr(void)
 	creg = usb_read_byte(IN1INT);
 	if (creg & ISRIN_EP0)
 		ep0_in();
+}
+
+void start_app() __naked
+{
+	__asm
+		ljmp APP_START
+	__endasm;
 }
 

@@ -3,14 +3,14 @@
 
 void main(void)
 {
+	char c;
 	system_init();
 	usb_init();
 	printf("device starting\n");
 	EA = 1;
 	while (1) {
-		putchar(getchar());
-		putchar('\r');
-		putchar('\n');
+		c = getchar();
+		putchar( c == '\r' ? '\n' : c);
 	}
 }
 

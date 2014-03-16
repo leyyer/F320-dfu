@@ -3,16 +3,7 @@
 #include "usbdev.h"
 #include "usbreq.h"
 
-/* usb0 status */
-#define USB_STATE_IDLE     0
-#define USB_STATE_ASSIGNED 1
-/* usb endpoints status */
-#define USB_EP_IDLE  0
-#define USB_EP_TX    1
-#define USB_EP_RX    2
-#define USB_EP_STALL 3
-
-static struct SetupPacket  __xdata last_setup;
+__xdata struct SetupPacket ep0_setup;
 static unsigned char __xdata usb0_state;
 static unsigned char __xdata usb0_ep[4];
 
@@ -24,6 +15,11 @@ unsigned char usb_read_byte(unsigned char addr)
 	while (USB0ADR & 0x80)
 		;
 	return USB0DAT;
+}
+
+void usb_endpoint_state(int ep, int state)
+{
+	usb0_ep[ep] = state;
 }
 
 int usb_fifo_read(unsigned char ep, unsigned char *bufp, int len)
@@ -62,14 +58,6 @@ void usb_fifo_write(unsigned char ep, unsigned char *buf, int len)
 		while (USB0ADR & 0x80)
 			;
 	}
-}
-
-void usb_write_ep0(void *dp, int size)
-{
-	unsigned char *bufp = dp;
-	int min = size > last_setup.wLength ? last_setup.wLength : size;
-
-	usb_fifo_write(FIFO_EP0, bufp, min);
 }
 
 void usb_init(void)
@@ -121,55 +109,53 @@ static void usb_handle_cmint(void)
 	}
 }
 
-static void ep0_std_devreq(void)
+static void usb_standard_request(void)
 {
-	unsigned char reg;
-	static __xdata struct UsbStringDescriptor *string_descr;
+	unsigned char v;
 
-	switch (last_setup.bRequest) {
+	switch (ep0_setup.bRequest) {
 	case USB_GET_STATUS:
+		printf("get_status\n");
 		break;
 	case USB_CLEAR_FEATURE:
 		break;
 	case USB_SET_FEATURE:
 		break;
 	case USB_SET_ADDRESS:
-		usb_write_byte(FADDR, 0x80 | last_setup.wValue);
+		usb_write_byte(FADDR, 0x80 | ep0_setup.wValue);
 		usb_write_byte(E0CSR, E0CSR_DATAEND);
 		do {
-			reg = usb_read_byte(FADDR);
-		} while (reg & 0x80);
-		printf("set_address: %d\n", last_setup.wValue);
+			v = usb_read_byte(FADDR);
+		} while (v & 0x80);
+		printf("set_address: %d\n", ep0_setup.wValue);
 		break;
 	case USB_GET_DESCRIPTOR:
-		reg = last_setup.wValue >> 8;
-		if (reg == USB_DESCRIPTOR_TYPE_DEVICE) {
+		v = ep0_setup.wValue >> 8;
+		printf("descriptor: type %d, index: %d\n", v, ep0_setup.wValue & 0xff);
+		switch (v) {
+		case USB_DESCRIPTOR_TYPE_DEVICE:
 			usb_device_descriptor();
-			printf("get device descriptor\n"); 
-		} else if (reg == USB_DESCRIPTOR_TYPE_CONFIGURATION) {
-			usb_configuration_descriptor(last_setup.wValue & 0xff);
-			printf("get config descriptor: index: %d\n", (last_setup.wValue & 0xff));
-		} else if (reg == USB_DESCRIPTOR_TYPE_STRING) {
-			usb_string_descriptor(last_setup.wValue & 0xff);
-			printf("get string descriptor: index: %d\n", (last_setup.wValue & 0xff));
-		} else {
-			printf("unknown descriptor %d\n", reg);
+			break;
+		case USB_DESCRIPTOR_TYPE_CONFIGURATION:
+			usb_configuration_descriptor();
+			break;
+		case USB_DESCRIPTOR_TYPE_STRING:
+			usb_string_descriptor();
+			break;
 		}
-		usb_write_byte(E0CSR, E0CSR_INPRDY | E0CSR_DATAEND);
 		break;
 	case USB_SET_DESCRIPTOR:
 		break;
 	case USB_GET_CONFIGURATION:
 		printf("get_configuration\n");
 		usb_get_configuration();
-		usb_write_byte(E0CSR, E0CSR_INPRDY | E0CSR_DATAEND);
 		break;
 	case USB_SET_CONFIGURATION:
 		break;
 	}
 }
 
-static void ep0_std_intfreq(void)
+static void usb_standard_interface(void)
 {
 }
 
@@ -177,35 +163,15 @@ static void ep0_std_epreq(void)
 {
 }
 
-static void ep0_setup(void)
-{
-	unsigned char type, recip;
-
-	type = (last_setup.bmRequestType >> 5) & 0x3;
-	recip = last_setup.bmRequestType & 0x1f;
-	if (type == 0) {
-		/* standard */
-		if (recip == 0)
-			ep0_std_devreq();
-		else if (recip == 1)
-			ep0_std_intfreq();
-		else if (recip == 2)
-			ep0_std_epreq();
-	} else if (type == 1) { /* class */
-		usb_class_request(&last_setup);
-		usb_write_byte(E0CSR, E0CSR_INPRDY | E0CSR_DATAEND);
-	} else if (type == 2) { /* vendor */
-	}
-}
-
 static void ep0_in(void)
 {
-	unsigned char csr, cnt;
+	unsigned char csr, cnt, type, recip;
 
 	usb_write_byte(INDEX, 0x0);
 	csr = usb_read_byte(E0CSR);
 
 	printf("ep0 csr: %x\n", csr);
+
 	if (csr & E0CSR_SUEND) {
 		/* XXX: stall */
 		usb_write_byte(E0CSR, E0CSR_SSUEND);
@@ -213,13 +179,53 @@ static void ep0_in(void)
 
 	if (csr & E0CSR_OPRDY) {
 		if (usb0_ep[0] == USB_EP_IDLE) {
-			cnt = usb_fifo_read(FIFO_EP0, (unsigned char *)&last_setup, 8);
-			printf("setup: %x, %d, %d, %d, %d\n", last_setup.bmRequestType,
-					last_setup.bRequest, last_setup.wValue,
-					last_setup.wIndex, last_setup.wLength);
+			cnt = usb_fifo_read(FIFO_EP0, (unsigned char *)&ep0_setup, 8);
+			printf("setup: %x, %d, %d, %d, %d\n", ep0_setup.bmRequestType,
+					ep0_setup.bRequest, ep0_setup.wValue,
+					ep0_setup.wIndex, ep0_setup.wLength);
 			usb_write_byte(E0CSR, E0CSR_SOPRDY);
-			ep0_setup();
+			type = (ep0_setup.bmRequestType >> 5) & 0x3;
+			recip = ep0_setup.bmRequestType & 0x1f;
+			switch (type) {
+			case 0:
+				/* standard */
+				if (recip == 0)
+					usb_standard_request();
+				else if (recip == 1)
+					usb_standard_interface();
+				else if (recip == 2)
+					ep0_std_epreq();
+				break;
+			case 1:  /* class */
+				usb_class_request();
+				break;
+			case 2: /* vendor */
+				break;
+			}
+			csr &= ~E0CSR_OPRDY;
+			//	usb_write_byte(E0CSR, E0CSR_INPRDY | E0CSR_DATAEND);
+		}  else if (usb0_ep[0] == USB_EP_RX) {
+			unsigned char reg = E0CSR_SOPRDY;
+			if (usb_handle_rx(0) == 0) {
+				reg |= E0CSR_DATAEND;
+				usb0_ep[0] = USB_EP_IDLE;
+			}
+			usb_write_byte(E0CSR, reg);
+			csr &= ~E0CSR_OPRDY;
 		}
+	}
+
+	if (usb0_ep[0] == USB_EP_TX) {
+		if (csr & E0CSR_OPRDY) {
+			printf("tx interrupt by setup or out\n");
+			usb0_ep[0] = USB_EP_IDLE;
+			return;
+		}
+		printf("handle_usb_tx in isr\n");
+		if (usb_handle_tx(0) == 0) {
+			usb0_ep[0] = USB_EP_IDLE;
+		}
+		return;
 	}
 }
 
@@ -259,7 +265,7 @@ static void usb_handle_out1int(void)
 	}
 }
 
-void usb_isr(void) __interrupt(8) __using(2)
+void usb_isr(void) __interrupt(8) __using(3)
 {
 	usb_handle_cmint();
 	usb_handle_in1int();

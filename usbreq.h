@@ -1,6 +1,7 @@
 #ifndef __USBREQ_H__
 #define __USBREQ_H__
 #include <stdint.h>
+#include "usbdev.h"
 
 /* standard device request */
 #define USB_GET_STATUS      (0x00)
@@ -90,13 +91,35 @@ struct UsbStringDescriptor {
 	unsigned char bString[1];
 };
 
-void usb_write_ep0(void *dp, int size);
+extern __xdata struct SetupPacket ep0_setup;
+void usb_endpoint_state(int ep, int state);
+unsigned char usb_read_byte(unsigned char addr);
+void usb_write_byte(unsigned char addr, unsigned char byte);
+void usb_fifo_write(unsigned char ep, unsigned char *buf, int len);
+int  usb_fifo_read(unsigned char ep, unsigned char *bufp, int len);
+
+#define READ_END()   usb_write_byte(E0CSR, E0CSR_SOPRDY)
+#define USB_FIFO0_WRITE(dp, size) \
+	do { \
+		int min = ep0_setup.wLength > size ? size : ep0_setup.wLength; \
+		usb_fifo_write(FIFO_EP0, (unsigned char *)dp, min);\
+		usb_write_byte(E0CSR, E0CSR_INPRDY | E0CSR_DATAEND); \
+	} while (0)
+
+#define USB_FIFO0_READ(dp, size) \
+	do { \
+		int min = ep0_setup.wLength > size ? size : ep0_setup.wLength; \
+		usb_fifo_read(FIFO_EP0, (unsigned char *)dp, min);\
+	} while (0)
+
 
 /* device side api */
 void usb_device_descriptor(void);
-void usb_configuration_descriptor(int idx);
-void usb_string_descriptor(int idx);
+void usb_configuration_descriptor();
+void usb_string_descriptor();
 void usb_get_configuration();
-void usb_class_request(struct SetupPacket *sp);
+void usb_class_request();
+__bit usb_handle_tx(int ep);
+__bit usb_handle_rx(int ep);
 #endif
 

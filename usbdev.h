@@ -54,5 +54,16 @@
 #define E0CSR_SOPRDY  0x40
 #define E0CSR_SSUEND  0x80
 
+/* usb0 status */
+#define USB_STATE_IDLE        0
+#define USB_STATE_ASSIGNED    1
+#define USB_STATE_CONFIGURAED 2
+/* usb endpoints status */
+#define USB_EP_IDLE  0
+#define USB_EP_TX    1
+#define USB_EP_RX    2
+#define USB_EP_STALL 3
+
+void usb_endpoint_state(int ep, int state);
 #endif
 

@@ -93,3 +93,10 @@ void system_init(void)
 	uart0_init();
 }
 
+void watchdog_reset()
+{
+	PCA0MD |= 0x40;
+	while (1)
+		;
+}
+

@@ -3,14 +3,12 @@
 
 void main(void)
 {
-	char c;
 	system_init();
 	usb_init();
-	printf("device starting\n");
-	EA = 1;
+	EA = 0;
+	printf("dfu mode.\n");
 	while (1) {
-		c = getchar();
-		putchar( c == '\r' ? '\n' : c);
+		usb_isr();
 	}
 }
 

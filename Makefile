@@ -1,5 +1,5 @@
 RM = del
-CFLAGS = -pstack-mode=large
+CFLAGS = -pstack-mode=small
 OBJS = main.rel sysinit.rel usbdev.rel usbdfu.rel
 usbdev.hex : usbdev.ihx clean
 	packihx $< > $@
@@ -10,5 +10,5 @@ usbdev.ihx: $(OBJS)
 clean:
 	$(RM) *.lk *.lst *.map *.mem *.rel *.sym *.rst
 distclean: clean
-	$(RM) *.ihx *.hex *.bin
+	$(RM) *.ihx *.hex *.bin *.asm
 

@@ -8,11 +8,13 @@
 #define SYS_OSC   0x00
 #define USB_CLOCK 0x00
 #define FLASH_BLOCK_SIZE 512
+#define APP_START 0x1400
 
 void system_init(void);
 void usb_init(void);
 void delay(void);
 void watchdog_reset(void);
-void usb_isr(void) __interrupt(8) __using(3);
+void usb_isr(void);
+void start_app(void);
 #endif
 

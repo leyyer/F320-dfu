@@ -100,3 +100,9 @@ void watchdog_reset()
 		;
 }
 
+void start_app()
+{
+	__code __at (APP_START) void (*__code app_addr)();
+	app_addr();
+}
+

@@ -58,7 +58,6 @@ static __xdata unsigned int sz_rx, sz_tx;
 static __bit (*handle_tx)(void);
 static __bit (*handle_rx)(void);
 static unsigned int start_addr, end_addr;
-static __code __at (0x2000) void (*__code app_addr)();
 
 struct dfu_config {
 	struct UsbConfigurationDescriptor config_descr;
@@ -204,6 +203,7 @@ static char up_read_cmd(void)
 	return tx;
 }
 
+#ifdef DEBUG
 static void dump_buffer(int n) __using(2)
 {
 	int x;
@@ -212,15 +212,20 @@ static void dump_buffer(int n) __using(2)
 	}
 	putchar('\n');
 }
+#endif
 
 static __bit handle_read_flash()
 {
-	unsigned char x;
 	unsigned int n = end_addr - start_addr + 1;
+#ifdef DEBUG
+	unsigned char x;
 	__bit EA_save = EA;
+#endif
 
 	if (n <= 0) {
+#ifdef DEBUG
 		printf("zero end\n");
+#endif
 		usb_write_byte(E0CSR, E0CSR_DATAEND);
 		return 0;
 	}
@@ -228,44 +233,21 @@ static __bit handle_read_flash()
 	if (n > EP0_MAX_BYTES) {
 		n = EP0_MAX_BYTES;
 	}
+#ifdef DEBUG
 	printf("flash read send %d bytes\n", n);
 	EA = 0;
 	for (x = 0; x < n; ++x) {
-		dfu_buffer[x] = *(unsigned char __code *)start_addr;
+		dfu_buffer[x] = *(unsigned char __code * __code)start_addr;
 		++start_addr;
 	}
 	EA = EA_save;
 	usb_fifo_write(FIFO_EP0, dfu_buffer, n);
+#else
+	usb_fifo_write(FIFO_EP0, (unsigned char __code * __code)start_addr, n);
+	start_addr += n;
+#endif
 	usb_write_byte(E0CSR, E0CSR_INPRDY);
 	return 1;
-}
-
-static void dnd_handle_cmd()
-{
-	if (dfu_buffer[0] == 0x4) { /* ld_write_command */
-		if (dfu_buffer[1] == 0x3) {
-			if (ep0_setup.wLength == 0) {
-				if (dfu_buffer[2] == 0x00) { /* watchdog reset */
-					printf("watchdog reset\n");
-					watchdog_reset();
-				} else if (dfu_buffer[2] == 0x01) { /* LJMP address */
-					printf("jump to main\n");
-					__asm
-						ljmp 0x2000
-					__endasm;
-				}
-			}
-		}
-	}
-}
-
-static void flash_erase(__xdata unsigned char *where)
-{
-	FLKEY = 0xA5;
-	FLKEY = 0xF1;
-	PSCTL = 0x3;
-	*where = 1;
-	PSCTL = 0;
 }
 
 static void __do_flash_erase(unsigned int t)
@@ -296,46 +278,15 @@ static void __do_flash_byte(unsigned int t, unsigned char f)
 	EA = EA_save;
 }
 
-#if 0
-static void flash_write(unsigned int s, unsigned int e, unsigned int rbytes)
-{
-	unsigned int skip, n;
-
-	__bit EA_save = EA;
-	EA = 0;
-	/* reading first MaxTransfer */
-	flash_erase((__xdata unsigned char *) s);
-	n = usb_fifo_read(FIFO_EP0, dfu_buffer, sizeof dfu_buffer);
-	READ_END();
-	skip = s % EP0_MAX_BYTES;
-	for (;skip < EP0_MAX_BYTES && s < e; ++skip) {
-		__do_flash_byte((__xdata unsigned char *)s, dfu_buffer + skip);
-		++s;
-		++skip;
-	}
-	rbytes -= EP0_MAX_BYTES;
-	while (rbytes > 0 && s < e) {
-		n = usb_fifo_read(FIFO_EP0, dfu_buffer, sizeof dfu_buffer);
-		READ_END();
-		dump_buffer(n);
-		for (skip = 0; skip < n; ++skip) {
-			__do_flash_byte((__xdata unsigned char *)s, dfu_buffer + skip);
-			++s;
-		}
-		rbytes -= n;
-	}
-	EA = EA_save;
-	printf("after programming: start %x, end %x\n", s, e);
-}
-#endif
-
 __bit usb_handle_tx(int ep)
 {
 	if (ep != 0)
 		return 0;
 
 	if (sz_tx > 0) {
+#ifdef DEBUG
 		printf("handle_tx: %d bytes\n", sz_tx);
+#endif
 		usb_fifo_write(FIFO_EP0, dfu_buffer, sz_tx);
 		sz_tx = 0;
 	}
@@ -352,8 +303,10 @@ __bit usb_handle_rx(int ep)
 		return 0;
 
 	sz_rx = usb_fifo_read(FIFO_EP0, dfu_buffer, EP0_MAX_BYTES);
+#ifdef DEBUG
 	printf("usb_rx: %d bytes\n", sz_rx);
 	dump_buffer(sz_rx);
+#endif
 	if (handle_rx)
 		return handle_rx();
 	return 0;
@@ -362,9 +315,10 @@ __bit usb_handle_rx(int ep)
 static __bit do_flash_rx()
 {
 	unsigned char x;
+#ifdef DEBUG
 	printf("do_flash_rx\n");
-	for (x = 0; x < sz_rx && start_addr < end_addr; ++x) {
-		printf("write: %x\n", start_addr);
+#endif
+	for (x = 0; x < sz_rx && start_addr <= end_addr; ++x) {
 		__do_flash_byte(start_addr, dfu_buffer[x]);
 		++start_addr;
 	}
@@ -377,12 +331,15 @@ static __bit do_flash_rx0()
 {
 	unsigned char skip = start_addr % 32;
 
+#ifdef DEBUG
 	printf("skip: %d, use: %d\n", skip, sz_rx - skip);
-
+#endif
 	__do_flash_erase(start_addr + 1);
 
 	for (skip; skip < sz_rx && start_addr < end_addr; ++skip) {
+#ifdef DEBUG
 		printf("write: %x\n", start_addr);
+#endif
 		__do_flash_byte(start_addr, dfu_buffer[skip]);
 		++start_addr;
 	}
@@ -396,14 +353,11 @@ static __bit do_flash_rx0()
 
 static void do_jump_app()
 {
-	printf("jump app\n");
 	if (dfu_buffer[2] == 0) {
-		printf("watchdog reset\n");
 		watchdog_reset();
 	}
 	if (dfu_buffer[2] == 0x01) { /* LJUMP address */
-		printf("jump to main\n");
-		app_addr();
+		start_app();
 	}
 }
 
@@ -415,6 +369,12 @@ static __bit do_dnl_rx()
 		}
 		start_addr = (dfu_buffer[2] << 8) | dfu_buffer[3];
 		end_addr = (dfu_buffer[4] << 8) | dfu_buffer[5];
+		if (start_addr < APP_START) {
+#ifdef DEBUG
+			printf("don't write boot region.\n");
+#endif
+			return 0;
+		}
 		if (end_addr > start_addr) {
 			handle_rx = do_flash_rx0;
 			return 1;
@@ -426,7 +386,9 @@ static __bit do_dnl_rx()
 static __bit handle_upload()
 {
 	if (dfu_buffer[0] == 0x05) { /* ld_read_command */
+#ifdef DEBUG
 		printf("read_command\n");
+#endif
 		up_read_cmd();
 		usb_fifo_write(FIFO_EP0, dfu_buffer, 1);
 		usb_write_byte(E0CSR, E0CSR_INPRDY | E0CSR_DATAEND);
@@ -438,7 +400,9 @@ static __bit handle_upload()
 		}
 		start_addr = (dfu_buffer[2] << 8) | dfu_buffer[3];
 		end_addr = (dfu_buffer[4] << 8) | dfu_buffer[5];
+#ifdef DEBUG
 		printf("read flash: from %x to %x\n", start_addr, end_addr);
+#endif
 		handle_tx = handle_read_flash;
 		return handle_tx();
 	}
@@ -494,63 +458,5 @@ void usb_class_request(void)
 			break;
 		}
 	}
-
-#if 0
-	if (sp->bmRequestType == CLAZ_DFU_TYPE_IN || sp->bmRequestType == CLAZ_DFU_TYPE_OUT) {
-		switch (sp->bRequest) {
-		case DFU_DETACH:
-			break;
-		case DFU_DNLOAD:
-			if (sp->wLength > 0) {
-				n = usb_fifo_read(FIFO_EP0, dfu_buffer, sizeof dfu_buffer);
-				READ_END();
-				printf("dnload: %d bytes\n", n);
-				dump_buffer(n);
-				if (dfu_buffer[0] == 0x01) /* ld_prog_start */ {
-					printf("prog_start\n");
-					if (dfu_buffer[1] != 0x0) {
-						goto skip;  /* EEPROM not supported */
-					}
-					start = (dfu_buffer[2] << 8) | dfu_buffer[3];
-					end = (dfu_buffer[4] << 8) | dfu_buffer[5];
-					printf("start: %x, end: %x\n", start, end);
-					if (start > end)
-						goto skip;
-					flash_write(start, end, sp->wLength - n);
-				}
-			} else {
-				dnd_handle_cmd();
-			}
-skip:
-			break;
-		case DFU_UPLOAD:
-			printf("upload\n");
-			if (dfu_buffer[0] == 0x05) { /* ld_read_command */
-				up_read_cmd();
-			}
-			if (dfu_buffer[0] == 0x3) { /* display flash contents */
-				if (dfu_buffer[1] != 0) { /* only support flash data */
-					goto skip0;
-				}
-				start = (dfu_buffer[2] << 8) | dfu_buffer[3];
-				end = (dfu_buffer[4] << 8) | dfu_buffer[5];
-				up_flash_data((__xdata unsigned char *)start, (__xdata unsigned char *)end);
-			}
-skip0:
-			break;
-		case DFU_GETSTATUS:
-			USB_FIFO0_WRITE(&dfu_state, sizeof dfu_state);
-			break;
-		case DFU_CLRSTATUS:
-			dfu_state.bStatus = DFU_STATUS_OK;
-			dfu_state.bState  = DFU_STATE_DFUIDLE;
-			break;
-		case DFU_GETSTATE:
-			break;
-		case DFU_ABORT:
-			break;
-		}
-	}
-#endif
 }
 

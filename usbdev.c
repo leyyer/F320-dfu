@@ -84,38 +84,15 @@ void usb_init(void)
 	usb_write_byte(POWER, 0x01);
 }
 
-static void usb_handle_cmint(void)
-{
-	unsigned char creg = usb_read_byte(CMINT);
-
-	if (creg & ISRCOM_SOF) {
-		printf("isr: sof\r\n");
-	}
-
-	if (creg & ISRCOM_RSTINT) {
-		printf("isr: RSTINT\r\n");
-		usb0_state = USB_STATE_IDLE;
-		usb0_ep[0] = USB_EP_IDLE;
-		usb0_ep[1] = USB_EP_STALL;
-		usb0_ep[2] = USB_EP_STALL;
-		usb0_ep[3] = USB_EP_STALL;
-	}
-
-	if (creg & ISRCOM_RSUINT) {
-		printf("isr: RSUINT\r\n");
-	}
-	if (creg & ISRCOM_SUSINT) {
-		printf("isr: SUSINT\r\n");
-	}
-}
-
 static void usb_standard_request(void)
 {
 	unsigned char v;
 
 	switch (ep0_setup.bRequest) {
 	case USB_GET_STATUS:
+#ifdef DEBUG
 		printf("get_status\n");
+#endif
 		break;
 	case USB_CLEAR_FEATURE:
 		break;
@@ -127,11 +104,15 @@ static void usb_standard_request(void)
 		do {
 			v = usb_read_byte(FADDR);
 		} while (v & 0x80);
+#ifdef DEBUG
 		printf("set_address: %d\n", ep0_setup.wValue);
+#endif
 		break;
 	case USB_GET_DESCRIPTOR:
 		v = ep0_setup.wValue >> 8;
+#ifdef DEBUG
 		printf("descriptor: type %d, index: %d\n", v, ep0_setup.wValue & 0xff);
+#endif
 		switch (v) {
 		case USB_DESCRIPTOR_TYPE_DEVICE:
 			usb_device_descriptor();
@@ -147,7 +128,9 @@ static void usb_standard_request(void)
 	case USB_SET_DESCRIPTOR:
 		break;
 	case USB_GET_CONFIGURATION:
+#ifdef DEBUG
 		printf("get_configuration\n");
+#endif
 		usb_get_configuration();
 		break;
 	case USB_SET_CONFIGURATION:
@@ -170,7 +153,9 @@ static void ep0_in(void)
 	usb_write_byte(INDEX, 0x0);
 	csr = usb_read_byte(E0CSR);
 
+#ifdef DEBUG
 	printf("ep0 csr: %x\n", csr);
+#endif
 
 	if (csr & E0CSR_SUEND) {
 		/* XXX: stall */
@@ -180,9 +165,11 @@ static void ep0_in(void)
 	if (csr & E0CSR_OPRDY) {
 		if (usb0_ep[0] == USB_EP_IDLE) {
 			cnt = usb_fifo_read(FIFO_EP0, (unsigned char *)&ep0_setup, 8);
+#ifdef DEBUG
 			printf("setup: %x, %d, %d, %d, %d\n", ep0_setup.bmRequestType,
 					ep0_setup.bRequest, ep0_setup.wValue,
 					ep0_setup.wIndex, ep0_setup.wLength);
+#endif
 			usb_write_byte(E0CSR, E0CSR_SOPRDY);
 			type = (ep0_setup.bmRequestType >> 5) & 0x3;
 			recip = ep0_setup.bmRequestType & 0x1f;
@@ -203,7 +190,6 @@ static void ep0_in(void)
 				break;
 			}
 			csr &= ~E0CSR_OPRDY;
-			//	usb_write_byte(E0CSR, E0CSR_INPRDY | E0CSR_DATAEND);
 		}  else if (usb0_ep[0] == USB_EP_RX) {
 			unsigned char reg = E0CSR_SOPRDY;
 			if (usb_handle_rx(0) == 0) {
@@ -217,11 +203,9 @@ static void ep0_in(void)
 
 	if (usb0_ep[0] == USB_EP_TX) {
 		if (csr & E0CSR_OPRDY) {
-			printf("tx interrupt by setup or out\n");
 			usb0_ep[0] = USB_EP_IDLE;
 			return;
 		}
-		printf("handle_usb_tx in isr\n");
 		if (usb_handle_tx(0) == 0) {
 			usb0_ep[0] = USB_EP_IDLE;
 		}
@@ -229,46 +213,36 @@ static void ep0_in(void)
 	}
 }
 
-static void usb_handle_in1int()
+void usb_isr(void)
 {
-	unsigned char creg = usb_read_byte(IN1INT);
+	unsigned char creg = usb_read_byte(CMINT);
 
-	if (creg & ISRIN_IN3) {
-		printf("ep3 in\r\n");
+#ifdef DEBUG
+	if (creg & ISRCOM_SOF) {
+		printf("isr: sof\r\n");
+	}
+#endif
+	if (creg & ISRCOM_RSTINT) {
+#ifdef DEBUG
+		printf("isr: RSTINT\r\n");
+#endif
+		usb0_state = USB_STATE_IDLE;
+		usb0_ep[0] = USB_EP_IDLE;
+		usb0_ep[1] = USB_EP_STALL;
+		usb0_ep[2] = USB_EP_STALL;
+		usb0_ep[3] = USB_EP_STALL;
 	}
 
-	if (creg & ISRIN_IN2) {
-		printf("ep2 in\r\n");
+#ifdef DEBUG
+	if (creg & ISRCOM_RSUINT) {
+		printf("isr: RSUINT\r\n");
 	}
-
-	if (creg & ISRIN_IN1) {
-		printf("ep1 in\r\n");
+	if (creg & ISRCOM_SUSINT) {
+		printf("isr: SUSINT\r\n");
 	}
-
-	if (creg & ISRIN_EP0) {
+#endif
+	creg = usb_read_byte(IN1INT);
+	if (creg & ISRIN_EP0)
 		ep0_in();
-	}
-}
-
-static void usb_handle_out1int(void)
-{
-	unsigned char creg = usb_read_byte(OUT1INT);
-
-	if (creg & ISROUT_OUT3) {
-		printf("ep3 out\r\n");
-	}
-	if (creg & ISROUT_OUT2) {
-		printf("ep2 out\r\n");
-	}
-	if (creg & ISROUT_OUT1) {
-		printf("ep1 out\r\n");
-	}
-}
-
-void usb_isr(void) __interrupt(8) __using(3)
-{
-	usb_handle_cmint();
-	usb_handle_in1int();
-	usb_handle_out1int();
 }
 

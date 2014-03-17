@@ -119,7 +119,10 @@ void main(void)
 	system_init();
 	usb_init();
 	EA = 0;
-	printf("dfu mode.\n");
+	putchar('d');
+	putchar('f');
+	putchar('u');
+	putchar('\n');
 	while (1) {
 		usb_poll();
 	}

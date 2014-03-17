@@ -57,7 +57,7 @@ static __xdata __at(0x0400) unsigned char dfu_buffer[EP0_MAX_BYTES];
 static __xdata unsigned int sz_rx, sz_tx;
 static __bit (*handle_tx)(void);
 static __bit (*handle_rx)(void);
-static unsigned int start_addr, end_addr;
+static unsigned int start_addr, end_addr, pktlen;
 
 struct dfu_config {
 	struct UsbConfigurationDescriptor config_descr;
@@ -169,13 +169,13 @@ static char up_read_cmd(void)
 	if (dfu_buffer[1] == 0x0) {
 		switch (dfu_buffer[2]) {
 		case 0: /* read bootloader version */
-			dfu_buffer[0] = 0x10;
+			dfu_buffer[0] = 0x11;
 			break;
 		case 1: /* read device boot id1 */
-			dfu_buffer[0] = 0x1;
+			dfu_buffer[0] = 0x32;
 			break;
 		case 2: /* read device boot id2 */
-			dfu_buffer[0] = 0x2;
+			dfu_buffer[0] = 0x01;
 			break;
 		default:
 			tx = 0;
@@ -184,16 +184,16 @@ static char up_read_cmd(void)
 	} else if (dfu_buffer[1] == 0x01) {
 		switch (dfu_buffer[2]) {
 		case  0x30: /* read manufacturer code */
-			dfu_buffer[0] = 'i';
+			dfu_buffer[0] = 'S';
 			break;
 		case 0x31: /* read family code */
-			dfu_buffer[0] = 1;
+			dfu_buffer[0] = 'D';
 			break;
 		case 0x60: /* read product name */
-			dfu_buffer[0] = 1;
+			dfu_buffer[0] = 'F';
 			break;
 		case 0x61: /* read product resvision */
-			dfu_buffer[0] = 1;
+			dfu_buffer[0] = 'U';
 			break;
 		default:
 			tx = 0;
@@ -298,6 +298,12 @@ __bit usb_handle_rx(int ep)
 	return 0;
 }
 
+static __bit ignore_bytes()
+{
+	pktlen -= sz_rx;
+	return pktlen;
+}
+
 static __bit do_flash_rx()
 {
 	unsigned char x;
@@ -308,19 +314,21 @@ static __bit do_flash_rx()
 		__do_flash_byte(start_addr, dfu_buffer[x]);
 		++start_addr;
 	}
+	pktlen -= sz_rx;
 	if (start_addr < end_addr)
 		return 1;
+	if (pktlen) {
+		handle_rx = ignore_bytes;
+		return 1;
+	}
 	return 0;
 }
 
 static __bit do_flash_rx0()
 {
-	unsigned char skip = start_addr % 32;
+	unsigned char skip;
 
-#ifdef DEBUG
-	printf("skip: %d, use: %d\n", skip, sz_rx - skip);
-#endif
-	for (skip; skip < sz_rx && start_addr <= end_addr; ++skip) {
+	for (skip = 0; skip < sz_rx && start_addr <= end_addr; ++skip) {
 #ifdef DEBUG
 		printf("write: %x\n", start_addr);
 #endif
@@ -328,8 +336,13 @@ static __bit do_flash_rx0()
 		++start_addr;
 	}
 
+	pktlen -= sz_rx;
 	if (start_addr < end_addr) {
 		handle_rx = do_flash_rx;
+		return 1;
+	}
+	if (pktlen) {
+		handle_rx = ignore_bytes;
 		return 1;
 	}
 	return 0;
@@ -359,7 +372,8 @@ static __bit do_dnl_rx()
 #endif
 			return 0;
 		}
-		if (end_addr > start_addr) {
+		if (end_addr >= start_addr) {
+			pktlen -= sz_rx;
 			handle_rx = do_flash_rx0;
 			return 1;
 		}
@@ -450,6 +464,7 @@ void usb_class_request(void)
 					&& dfu_buffer[1] == 0x03) {
 				do_jump_app();
 			} else {
+				pktlen    = ep0_setup.wLength;
 				handle_rx = do_dnl_rx;
 				usb_endpoint_state(0, USB_EP_RX);
 			}

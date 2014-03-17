@@ -8,7 +8,6 @@
 #define SYS_OSC   0x00
 #define USB_CLOCK 0x00
 #define FLASH_BLOCK_SIZE 512
-#define APP_START 0x1400
 
 void system_init(void);
 void delay(void);

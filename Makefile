@@ -1,5 +1,5 @@
 RM = del
-CFLAGS = -pstack-mode=small
+CFLAGS = -DAPP_START=0x1000
 OBJS = main.rel sysinit.rel usbdev.rel usbdfu.rel
 dfu.hex : dfu.ihx clean
 	packihx $< > $@

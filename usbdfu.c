@@ -250,20 +250,6 @@ static __bit handle_read_flash()
 	return 1;
 }
 
-static void __do_flash_erase(unsigned int t)
-{
-	__xdata char *p = (__xdata char *)t;
-
-	__bit EA_save = EA;
-	EA = 0;
-	FLKEY = 0xA5;
-	FLKEY = 0xF1;
-	PSCTL = 0x3;
-	*p = 1;
-	PSCTL = 0;
-	EA = EA_save;
-}
-
 static void __do_flash_byte(unsigned int t, unsigned char f)
 {
 	__xdata char *p = (__xdata char *)t;
@@ -334,8 +320,6 @@ static __bit do_flash_rx0()
 #ifdef DEBUG
 	printf("skip: %d, use: %d\n", skip, sz_rx - skip);
 #endif
-	__do_flash_erase(start_addr + 1);
-
 	for (skip; skip < sz_rx && start_addr <= end_addr; ++skip) {
 #ifdef DEBUG
 		printf("write: %x\n", start_addr);
@@ -378,6 +362,25 @@ static __bit do_dnl_rx()
 		if (end_addr > start_addr) {
 			handle_rx = do_flash_rx0;
 			return 1;
+		}
+	} else if (dfu_buffer[0] == 0x04) { /* write command */
+		if (dfu_buffer[1] == 0x0 && dfu_buffer[2] == 0xff) { /* erase flash */
+			__xdata char *p;
+			unsigned int x = APP_START + 1;
+			__bit EA_save;
+
+			EA_save = EA;
+			EA = 0;
+			while (x < 0x3C00) {
+				p = (__xdata char *)x;
+				FLKEY = 0xA5;
+				FLKEY = 0xF1;
+				PSCTL = 0x3;
+				*p = 1;
+				PSCTL = 0;
+				x += FLASH_BLOCK_SIZE;
+			}
+			EA = EA_save;
 		}
 	}
 	return 0;
@@ -443,7 +446,8 @@ void usb_class_request(void)
 		case DFU_DETACH:
 			break;
 		case DFU_DNLOAD:
-			if (ep0_setup.wLength == 0 && dfu_buffer[0] == 0x4 && dfu_buffer[1] == 0x03) {
+			if (ep0_setup.wLength == 0 && dfu_buffer[0] == 0x4
+					&& dfu_buffer[1] == 0x03) {
 				do_jump_app();
 			} else {
 				handle_rx = do_dnl_rx;
